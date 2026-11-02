@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Hero } from "@/components/hero";
 import { PageShell } from "@/components/page-shell";
 import { RepoLink } from "@/components/repo-link";
 import { EmptyState, SectionRule } from "@/components/repo-card";
@@ -51,9 +52,9 @@ async function CachedHome({ windowDays }: { windowDays: MomentumWindow }) {
   "use cache";
   cacheReadModel("catalog", "hours");
 
-  const [stats, radar, momentum, fastest, spotlight] = await Promise.all([
+  const [stats, radarAll, momentum, fastest, spotlight] = await Promise.all([
     getIntelligenceStats(),
-    getTodaysRadar(4),
+    getTodaysRadar(14),
     getCategoryMomentum(6, windowDays),
     getFastestMoving(6),
     getDiscoverySpotlight(),
@@ -84,6 +85,8 @@ async function CachedHome({ windowDays }: { windowDays: MomentumWindow }) {
     });
   }
 
+  const radar = radarAll.slice(0, 4);
+
   const spotlightName =
     spotlight?.full_name ||
     (spotlight ? `${spotlight.owner}/${spotlight.repo_name}` : null);
@@ -98,59 +101,7 @@ async function CachedHome({ windowDays }: { windowDays: MomentumWindow }) {
 
   return (
     <div className="space-y-7">
-      <section>
-        <div
-          className={`grid grid-cols-2 gap-px border-2 border-[var(--rule-strong)] bg-[var(--rule-strong)] ${
-            kpis.length === 5 ? "sm:grid-cols-5" : "sm:grid-cols-4"
-          }`}
-        >
-          {kpis.map((k, i) => {
-            const spanLastOnMobile =
-              kpis.length % 2 === 1 && i === kpis.length - 1;
-            return (
-              <div
-                key={k.label}
-                className={
-                  spanLastOnMobile
-                    ? "col-span-2 bg-[var(--paper)] px-3 py-2.5 sm:col-span-1"
-                    : "bg-[var(--paper)] px-3 py-2.5"
-                }
-              >
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-                  {k.label}
-                </p>
-                <p className="mt-0.5 font-serif text-xl font-semibold tabular-nums leading-none text-[var(--ink)]">
-                  {k.value}
-                </p>
-                {k.hint ? (
-                  <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--ink-faint)]">
-                    {k.hint}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-x-4 gap-y-2 border border-[var(--rule)] bg-[var(--paper-elevated)] px-4 py-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--ink-faint)]">
-          Explore
-        </span>
-        {[
-          ["/knowledge-graph", "Knowledge graph"],
-          ["/repositories", "All repositories"],
-          ["/hidden-gems", "Hidden gems"],
-        ].map(([href, label]) => (
-          <Link
-            key={href}
-            href={href}
-            className="font-sans text-sm text-[var(--ink-muted)] underline-offset-2 hover:text-[var(--signal)] hover:underline"
-          >
-            {label}
-          </Link>
-        ))}
-      </section>
+      <Hero kpis={kpis} discoveries={radarAll} />
 
       <section>
         <SectionRule title="Today’s Radar" kicker="Latest discoveries" href="/timeline" />
