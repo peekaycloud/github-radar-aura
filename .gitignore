@@ -55,4 +55,6 @@ next-env.d.ts
 tmp/
 .cache/
 scripts/.enrichment_cache/
-.env*
+.env
+.env.local
+.env.*.local
