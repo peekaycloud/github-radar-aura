@@ -1,0 +1,17 @@
+name: Restore Telethon session
+description: Decodes TELEGRAM_SESSION secret into telegram_scraper.session
+
+runs:
+  using: composite
+  steps:
+    - name: Restore session file
+      shell: bash
+      env:
+        TELEGRAM_SESSION_B64: ${{ env.TELEGRAM_SESSION_B64 }}
+      run: |
+        if [ -z "$TELEGRAM_SESSION_B64" ]; then
+          echo "Missing TELEGRAM_SESSION (base64 of telegram_scraper.session)"
+          exit 1
+        fi
+        echo "$TELEGRAM_SESSION_B64" | base64 --decode > telegram_scraper.session
+        ls -la telegram_scraper.session

@@ -17,6 +17,11 @@ export function cacheReadModel(
   profile: "minutes" | "hours" | "search" = "minutes"
 ) {
   cacheTag("radar", scope);
+  const dev = process.env.NODE_ENV === "development";
+  if (dev) {
+    cacheLife("minutes");
+    return;
+  }
   if (profile === "hours") {
     cacheLife("hours");
   } else if (profile === "search") {

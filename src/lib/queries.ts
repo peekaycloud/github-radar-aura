@@ -31,8 +31,16 @@ export {
 } from "@/lib/data/catalog";
 
 export {
+  getRelatedByCoMention,
   getRepoCategories,
   getRepoMentions,
   getRepository,
   getRepoSnapshots,
 } from "@/lib/data/repository";
+
+export {
+  getKnowledgeGraph,
+  type GraphEdge,
+  type GraphNode,
+  type KnowledgeGraphData,
+} from "@/lib/data/graph";

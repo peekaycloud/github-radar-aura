@@ -55,9 +55,9 @@ async function CachedTrending({
     <div className="space-y-8">
       <SectionRule title="Trending" kicker="Momentum" />
       <p className="max-w-2xl font-sans text-sm text-[var(--ink-muted)]">
-        Ranked by star gain between snapshots. If we don’t yet have a capture
-        from 7 or 30 days ago, the oldest snapshot is the baseline — that
-        history only started this month.
+        Ranked by star change between captures. When there is no snapshot from
+        the selected window yet, we show observed growth from the first capture
+        to the latest. Daily enrich runs add snapshots over time.
       </p>
       <div className="flex flex-wrap gap-2">
         {WINDOWS.map((w) => (

@@ -10,6 +10,7 @@ const NAV = [
   { href: "/trending", label: "Trending" },
   { href: "/hidden-gems", label: "Hidden Gems" },
   { href: "/trends", label: "Trends" },
+  { href: "/knowledge-graph", label: "Graph" },
 ];
 
 export function SiteNav() {

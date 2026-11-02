@@ -133,6 +133,25 @@ async function CachedHome({ windowDays }: { windowDays: MomentumWindow }) {
         </div>
       </section>
 
+      <section className="flex flex-wrap items-center gap-x-4 gap-y-2 border border-[var(--rule)] bg-[var(--paper-elevated)] px-4 py-3">
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--ink-faint)]">
+          Explore
+        </span>
+        {[
+          ["/knowledge-graph", "Knowledge graph"],
+          ["/repositories", "All repositories"],
+          ["/hidden-gems", "Hidden gems"],
+        ].map(([href, label]) => (
+          <Link
+            key={href}
+            href={href}
+            className="font-sans text-sm text-[var(--ink-muted)] underline-offset-2 hover:text-[var(--signal)] hover:underline"
+          >
+            {label}
+          </Link>
+        ))}
+      </section>
+
       <section>
         <SectionRule title="Today’s Radar" kicker="Latest discoveries" href="/timeline" />
         {radar.length === 0 ? (

@@ -1,0 +1,18 @@
+name: Refresh read models and publish site
+description: Runs scripts/refresh_read_models.py then scripts/revalidate_site.py
+
+runs:
+  using: composite
+  steps:
+    - name: Refresh materialized views
+      shell: bash
+      env:
+        DATABASE_URL: ${{ env.DATABASE_URL }}
+      run: python scripts/refresh_read_models.py
+
+    - name: Revalidate and warm Vercel cache
+      shell: bash
+      env:
+        APP_URL: ${{ env.APP_URL }}
+        REVALIDATE_SECRET: ${{ env.REVALIDATE_SECRET }}
+      run: python scripts/revalidate_site.py

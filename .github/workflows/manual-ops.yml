@@ -1,0 +1,164 @@
+name: Manual data scripts
+
+# Run any maintenance script from the repo (workflow_dispatch).
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Script to run"
+        type: choice
+        required: true
+        options:
+          - refresh-read-models
+          - revalidate-site
+          - refresh-and-publish
+          - classify-categories
+          - github-enrich
+          - telegram-ingest
+          - telegram-backfill
+          - full-telegram-pipeline
+          - import-historical-csv
+          - database-migrate
+      limit:
+        description: "Limit (enrich / classify / backfill messages; empty = default)"
+        type: string
+        default: ""
+      channel:
+        description: "Telegram channel username (ingest / backfill only)"
+        type: string
+        default: "githubtrending"
+      backfill_missing:
+        description: "Full-telegram-pipeline — backfill channels with no watermark"
+        type: boolean
+        default: false
+      migrate_confirm:
+        description: 'Database migrate — type exactly "migrate" to run'
+        type: string
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TELEGRAM_CHANNELS: githubtrending,github_repos,github_repositories_bds
+      TELEGRAM_SESSION: telegram_scraper
+      APP_URL: ${{ secrets.APP_URL }}
+      REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+      ENRICH_CONCURRENCY: "3"
+      ENRICH_DELAY_SECONDS: "1.5"
+      INGEST_BATCH_SIZE: "100"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python setup
+        uses: ./.github/actions/python-deps
+
+      - name: Restore Telethon session
+        if: >-
+          contains(fromJSON('["telegram-ingest","telegram-backfill","full-telegram-pipeline"]'),
+          inputs.script)
+        uses: ./.github/actions/telegram-session
+        env:
+          TELEGRAM_SESSION_B64: ${{ secrets.TELEGRAM_SESSION }}
+
+      - name: Run selected script
+        id: main
+        run: |
+          set -euo pipefail
+          SCRIPT="${{ inputs.script }}"
+          LIMIT="${{ inputs.limit }}"
+          CHANNEL="${{ inputs.channel }}"
+          echo "Running: $SCRIPT"
+
+          case "$SCRIPT" in
+            refresh-read-models)
+              python scripts/refresh_read_models.py
+              ;;
+            revalidate-site)
+              python scripts/revalidate_site.py
+              ;;
+            refresh-and-publish)
+              python scripts/refresh_read_models.py
+              python scripts/revalidate_site.py
+              ;;
+            classify-categories)
+              L="${LIMIT:-500}"
+              python scripts/classify_categories.py --limit "$L"
+              ;;
+            github-enrich)
+              L="${LIMIT:-400}"
+              python scripts/github_enricher.py --limit "$L"
+              ;;
+            telegram-ingest)
+              BS="${LIMIT:-100}"
+              python scripts/telegram_ingest.py --channel "$CHANNEL" --batch-size "$BS"
+              ;;
+            telegram-backfill)
+              BS=250
+              if [ -n "$LIMIT" ]; then
+                python scripts/backfill_telegram_history.py \
+                  --channel "$CHANNEL" --batch-size "$BS" --limit "$LIMIT"
+              else
+                python scripts/backfill_telegram_history.py \
+                  --channel "$CHANNEL" --batch-size "$BS"
+              fi
+              ;;
+            full-telegram-pipeline)
+              L="${LIMIT:-200}"
+              EXTRA=""
+              if [ "${{ inputs.backfill_missing }}" = "true" ]; then
+                EXTRA="--backfill-missing"
+              fi
+              python telegram_scraper.py --enrich-limit "$L" $EXTRA
+              ;;
+            import-historical-csv)
+              if [ ! -f telegram_links.csv ]; then
+                echo "telegram_links.csv not found in repository root"
+                exit 1
+              fi
+              python scripts/import_historical.py
+              ;;
+            database-migrate)
+              if [ "${{ inputs.migrate_confirm }}" != "migrate" ]; then
+                echo 'Refusing migrate: set migrate_confirm input to "migrate"'
+                exit 1
+              fi
+              python scripts/migrate.py
+              ;;
+            *)
+              echo "Unknown script: $SCRIPT"
+              exit 1
+              ;;
+          esac
+
+      - name: Classify after enrich (standalone github-enrich)
+        if: success() && inputs.script == 'github-enrich'
+        run: |
+          L="${{ inputs.limit }}"
+          if [ -z "$L" ]; then L=400; fi
+          python scripts/classify_categories.py --limit "$(( L * 2 ))"
+
+      - name: Post-pipeline refresh and publish
+        if: >-
+          success() &&
+          contains(fromJSON('["github-enrich","telegram-ingest","telegram-backfill","full-telegram-pipeline","import-historical-csv","classify-categories","database-migrate"]'),
+          inputs.script)
+        uses: ./.github/actions/post-pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+
+      - name: Cleanup session artifacts
+        if: always()
+        run: rm -f telegram_scraper.session telegram_scraper.session-journal

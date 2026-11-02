@@ -102,13 +102,17 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## GitHub Actions (daily)
+## GitHub Actions
 
-Workflow: `.github/workflows/telegram-ingest.yml`
+| Workflow | Schedule (UTC) | What it runs |
+|---|---|---|
+| [Daily Telegram scrape & enrich](.github/workflows/telegram-ingest.yml) | `0 6 * * *` | `telegram_scraper.py` (ingest → enrich → classify → refresh) + revalidate |
+| [GitHub stars enrich backfill](.github/workflows/github-enrich.yml) | `15 */4 * * *` | `scripts/github_enricher.py` → `classify_categories.py` → refresh → revalidate |
+| [Refresh read models and publish](.github/workflows/refresh-and-publish.yml) | `30 */6 * * *` | `refresh_read_models.py` → `revalidate_site.py` |
+| [Classify categories](.github/workflows/classify-categories.yml) | `45 7 * * *` | `scripts/classify_categories.py` → refresh → revalidate |
+| [Manual data scripts](.github/workflows/manual-ops.yml) | On demand | Any script: migrate, backfill, CSV import, ingest-only, etc. |
 
-- **Schedule:** daily at 06:00 UTC (`0 6 * * *`)
-- **Manual:** Actions → “Daily Telegram scrape & enrich” → Run workflow
-- **Command:** `python telegram_scraper.py --enrich-limit 80`
+Shared post-steps live in `.github/actions/post-pipeline/` (matview refresh + Vercel cache warm).
 
 Add these repository secrets:
 
@@ -120,6 +124,8 @@ Add these repository secrets:
 | `TELEGRAM_API_ID` | Integer API id |
 | `TELEGRAM_API_HASH` | API hash |
 | `TELEGRAM_SESSION` | **Base64** of the Telethon `.session` file |
+| `APP_URL` | Production site URL (e.g. `https://github-radar-aura.vercel.app`) |
+| `REVALIDATE_SECRET` | Bearer token for `POST /api/revalidate` |
 
 Encode the session locally:
 
@@ -127,7 +133,9 @@ Encode the session locally:
 base64 -i telegram_scraper.session | pbcopy
 ```
 
-The workflow restores the session non-interactively, runs delta ingest + enrichment into Supabase, then deletes the session file.
+Workflows restore the Telethon session non-interactively when needed, run the selected scripts, refresh materialized views, revalidate the deployed Next.js app, then delete the session file.
+
+**Manual ops:** Actions → **Manual data scripts** → pick a script (migrate requires typing `migrate` in the confirm field).
 
 ## Discovery Score
 

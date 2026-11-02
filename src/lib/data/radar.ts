@@ -41,7 +41,7 @@ export async function getFastestMoving(limit = 5): Promise<FastMover[]> {
     ${discoveryJoin}
     WHERE snap.snapshot_count >= 2
       AND snap.pct_growth_observed >= 1
-      AND (snap.last_captured_at - snap.first_captured_at) >= INTERVAL '12 hours'
+      AND (snap.last_captured_at - snap.first_captured_at) >= INTERVAL '1 hour'
     ORDER BY snap.pct_growth_observed DESC
     LIMIT ${limit}
   `;
@@ -133,14 +133,16 @@ export async function getDiscoverySpotlight(): Promise<DiscoverySpotlight | null
       r.first_discovered_at,
       r.days_to_discovery,
       r.mention_count,
-      sad.stars AS stars_at_discovery,
+      COALESCE(r.stars_at_discovery, sad.stars) AS stars_at_discovery,
       CASE
-        WHEN sad.stars IS NOT NULL AND sad.stars > 0
-        THEN COALESCE(r.stars, 0)::float / sad.stars::float
+        WHEN COALESCE(r.stars_at_discovery, sad.stars) IS NOT NULL
+          AND COALESCE(r.stars_at_discovery, sad.stars) > 0
+        THEN COALESCE(r.stars, 0)::float
+          / COALESCE(r.stars_at_discovery, sad.stars)::float
         ELSE NULL
       END AS growth_multiple
     FROM candidates r
-    JOIN LATERAL (
+    LEFT JOIN LATERAL (
       SELECT s.stars
       FROM github_repo_snapshots s
       WHERE s.repository_id = r.id
@@ -148,11 +150,23 @@ export async function getDiscoverySpotlight(): Promise<DiscoverySpotlight | null
       ORDER BY ABS(EXTRACT(EPOCH FROM (s.captured_at - r.first_discovered_at)))
       LIMIT 1
     ) sad ON TRUE
-    WHERE sad.stars IS NOT NULL
-      AND COALESCE(r.stars, 0) > sad.stars
+    WHERE (
+        COALESCE(r.stars_at_discovery, sad.stars) IS NOT NULL
+        AND COALESCE(r.stars, 0) > COALESCE(r.stars_at_discovery, sad.stars, 0)
+      )
+      OR (
+        r.stars_at_discovery IS NULL
+        AND sad.stars IS NULL
+        AND r.first_discovered_at >= NOW() - INTERVAL '60 days'
+        AND r.days_to_discovery IS NOT NULL
+        AND r.days_to_discovery <= 120
+      )
     ORDER BY
       (
-        LN(1 + GREATEST(COALESCE(r.stars, 0) - sad.stars, 0))
+        LN(1 + GREATEST(
+          COALESCE(r.stars, 0) - COALESCE(r.stars_at_discovery, sad.stars, 0),
+          0
+        ))
         * CASE
             WHEN r.days_to_discovery <= 90 THEN 1.4
             WHEN r.days_to_discovery <= 180 THEN 1.15

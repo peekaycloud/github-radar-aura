@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SiteNav, SiteNavFallback } from "@/components/site-nav";
 
-export const SOURCE_REPO_URL = "https://github.com/peekaycloud/github-radar";
+export const SOURCE_REPO_URL = "https://github.com/peekaycloud/github-radar-aura";
 
 export function SiteHeader() {
   return (

@@ -41,62 +41,78 @@ export async function getTrending(
         ? sql`stars_gained_30d`
         : sql`stars_gained_7d`;
 
-  const candidateLimit = Math.min(800, Math.max(400, offset + limit * 8));
+  // Window gain when we have a baseline snapshot before the window end; otherwise
+  // fall back to observed delta (first→latest capture) so sparse pipelines still list movers.
   return toPlain(
     await sql<DiscoveryRow[]>`
-      WITH candidates AS (
-        SELECT snap.repository_id
-        FROM mv_repo_snapshot_stats snap
-        WHERE snap.snapshot_count >= 2
-          AND snap.stars_delta > 0
-        ORDER BY snap.stars_delta DESC
-        LIMIT ${candidateLimit}
-      ),
-      gained AS (
+      WITH snap AS (
         SELECT
-          c.repository_id,
-          (COALESCE(latest.stars, 0)
-            - COALESCE(prior.stars, earliest.stars, 0)) AS stars_gained
-        FROM candidates c
+          s.repository_id,
+          s.stars_delta,
+          s.min_stars,
+          s.snapshot_count,
+          s.last_captured_at
+        FROM mv_repo_snapshot_stats s
+        WHERE s.snapshot_count >= 2
+          AND s.stars_delta > 0
+      ),
+      scored AS (
+        SELECT
+          snap.repository_id,
+          snap.stars_delta,
+          GREATEST(
+            0,
+            COALESCE(latest.stars, 0)
+              - COALESCE(prior.stars, baseline.stars, snap.min_stars, 0)
+          ) AS window_gain,
+          GREATEST(
+            snap.stars_delta,
+            CASE
+              WHEN prior.stars IS NOT NULL THEN GREATEST(
+                0,
+                COALESCE(latest.stars, 0) - COALESCE(prior.stars, 0)
+              )
+              ELSE 0
+            END
+          ) AS display_gain,
+          snap.last_captured_at AS snapshot_as_of
+        FROM snap
         JOIN LATERAL (
           SELECT s.stars, s.captured_at
           FROM github_repo_snapshots s
-          WHERE s.repository_id = c.repository_id
+          WHERE s.repository_id = snap.repository_id
           ORDER BY s.captured_at DESC
           LIMIT 1
         ) latest ON TRUE
         LEFT JOIN LATERAL (
           SELECT s.stars, s.captured_at
           FROM github_repo_snapshots s
-          WHERE s.repository_id = c.repository_id
+          WHERE s.repository_id = snap.repository_id
             AND s.captured_at <= NOW() - ${interval}
           ORDER BY s.captured_at DESC
           LIMIT 1
         ) prior ON TRUE
-        JOIN LATERAL (
-          SELECT s.stars, s.captured_at
+        LEFT JOIN LATERAL (
+          SELECT s.stars
           FROM github_repo_snapshots s
-          WHERE s.repository_id = c.repository_id
+          WHERE s.repository_id = snap.repository_id
           ORDER BY s.captured_at ASC
           LIMIT 1
-        ) earliest ON TRUE
-        WHERE COALESCE(latest.stars, 0)
-            > COALESCE(prior.stars, earliest.stars, 0)
-          AND latest.captured_at
-            > COALESCE(prior.captured_at, earliest.captured_at)
-        ORDER BY
-          (COALESCE(latest.stars, 0)
-            - COALESCE(prior.stars, earliest.stars, 0)) DESC
-        LIMIT ${limit} OFFSET ${offset}
+        ) baseline ON TRUE
+        WHERE COALESCE(latest.stars, 0) > COALESCE(snap.min_stars, 0)
+           OR snap.stars_delta > 0
       )
       SELECT
         ${repositorySelect},
         ${discoverySelect},
-        gained.stars_gained AS ${gainAlias}
-      FROM gained
-      JOIN repositories r ON r.id = gained.repository_id
+        scored.display_gain AS ${gainAlias},
+        scored.snapshot_as_of
+      FROM scored
+      JOIN repositories r ON r.id = scored.repository_id
       ${discoveryJoin}
-      ORDER BY gained.stars_gained DESC
+      WHERE scored.display_gain > 0
+      ORDER BY scored.display_gain DESC, scored.snapshot_as_of DESC NULLS LAST
+      LIMIT ${limit} OFFSET ${offset}
     `
   );
 }

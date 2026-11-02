@@ -3,9 +3,11 @@ import { Suspense } from "react";
 import { GrowthPanel } from "@/components/charts";
 import { PageShell } from "@/components/page-shell";
 import { RepoHeading, RepoMeta } from "@/components/repo-heading";
+import { CompactRepoRow } from "@/components/radar-editorial";
 import {
   formatDate,
   formatNumber,
+  getRelatedByCoMention,
   getRepoCategories,
   getRepoMentions,
   getRepoSnapshots,
@@ -64,10 +66,11 @@ async function RepoIntelligence({
 }) {
   "use cache";
   cacheReadModel("repo", "hours");
-  const [mentions, snapshots, categories] = await Promise.all([
+  const [mentions, snapshots, categories, related] = await Promise.all([
     getRepoMentions(repository.repository_id),
     getRepoSnapshots(repository.repository_id),
     getRepoCategories(repository.repository_id),
+    getRelatedByCoMention(repository.repository_id),
   ]);
 
   const growthSnapshots = snapshots.map((s) => ({
@@ -181,6 +184,29 @@ async function RepoIntelligence({
           </p>
         ) : null}
       </section>
+
+      {related.length > 0 ? (
+        <section>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--rule)] pb-2">
+            <h2 className="font-serif text-2xl">Often mentioned together</h2>
+            <AppLink
+              href="/knowledge-graph"
+              className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--signal)] hover:underline"
+            >
+              Open graph →
+            </AppLink>
+          </div>
+          <div className="border border-[var(--rule-strong)] bg-[var(--paper-elevated)] px-3.5 py-2">
+            {related.map((row) => (
+              <CompactRepoRow
+                key={row.repository_id}
+                repo={row}
+                metric={`×${row.co_mention_count} posts`}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="mb-4 border-b border-[var(--rule)] pb-2 font-serif text-2xl">

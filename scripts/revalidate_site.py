@@ -27,6 +27,7 @@ WARM_PATHS = (
     "/ahead-of-curve",
     "/timeline",
     "/trends",
+    "/knowledge-graph",
     "/repositories",
 )
 
