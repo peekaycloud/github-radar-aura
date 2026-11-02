@@ -1,0 +1,58 @@
+name: GitHub stars enrich backfill
+
+# Public-HTML enrichment only (no Telegram session).
+# Burns down the pending-stars backlog between daily scrapes.
+
+on:
+  schedule:
+    # Every 4 hours
+    - cron: "15 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max repos to enrich this run"
+        type: string
+        default: "400"
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Enrich pending repositories
+        id: enrich
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENRICH_CONCURRENCY: "3"
+          ENRICH_DELAY_SECONDS: "1.5"
+        run: |
+          LIMIT="${{ inputs.limit }}"
+          if [ -z "$LIMIT" ]; then LIMIT=400; fi
+          echo "Enriching up to $LIMIT repos…"
+          python scripts/github_enricher.py --limit "$LIMIT"
+
+      - name: Refresh read models
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/refresh_read_models.py
+
+      - name: Publish updates to the site
+        if: ${{ !cancelled() }}
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+        run: python scripts/revalidate_site.py

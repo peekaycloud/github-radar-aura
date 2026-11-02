@@ -1,0 +1,83 @@
+name: Daily Telegram scrape & enrich
+
+# Runs telegram_scraper.py daily across configured channels:
+# githubtrending, github_repos, github_repositories_bds
+# Repositories are deduplicated by github_url in Supabase.
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      backfill_missing:
+        description: "Full-history backfill for channels with no watermark"
+        type: boolean
+        default: false
+
+jobs:
+  scrape-and-enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore Telethon session
+        env:
+          TELEGRAM_SESSION_B64: ${{ secrets.TELEGRAM_SESSION }}
+        run: |
+          if [ -z "$TELEGRAM_SESSION_B64" ]; then
+            echo "Missing secret TELEGRAM_SESSION (base64 of telegram_scraper.session)"
+            exit 1
+          fi
+          echo "$TELEGRAM_SESSION_B64" | base64 --decode > telegram_scraper.session
+          ls -la telegram_scraper.session
+
+      - name: Run daily multi-channel pipeline
+        id: pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_CHANNELS: githubtrending,github_repos,github_repositories_bds
+          TELEGRAM_SESSION: telegram_scraper
+          INGEST_BATCH_SIZE: "100"
+          ENRICH_CONCURRENCY: "3"
+          ENRICH_DELAY_SECONDS: "1.5"
+          ENRICH_BATCH_SIZE: "200"
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.backfill_missing }}" = "true" ]; then
+            EXTRA="--backfill-missing"
+          fi
+          python telegram_scraper.py --enrich-limit 200 $EXTRA
+
+      - name: Refresh read models
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/refresh_read_models.py
+
+      - name: Publish updates to the site
+        if: ${{ !cancelled() }}
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+        run: python scripts/revalidate_site.py
+
+      - name: Cleanup session artifacts
+        if: always()
+        run: rm -f telegram_scraper.session telegram_scraper.session-journal
